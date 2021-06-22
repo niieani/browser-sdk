@@ -1,10 +1,43 @@
 import { display } from '../tools/display'
 import { Context } from '../tools/context'
 import { addEventListener, DOM_EVENT, jsonStringify, noop, objectValues } from '../tools/utils'
-import { monitor, addErrorToMonitoringBatch } from '../domain/internalMonitoring'
+import { monitor, addErrorToMonitoringBatch, addMonitoringMessage } from '../domain/internalMonitoring'
 
 // https://en.wikipedia.org/wiki/UTF-8
 const HAS_MULTI_BYTES_CHARACTERS = /[^\u0000-\u007F]/
+
+
+/* eslint-disable camelcase */
+type ErrorCtx = {
+  err_msg?: string;
+  err_stack?: string;
+} | undefined;
+
+type TransportErrorCtx = {
+  beacon: Record<string, string | number | boolean>,
+  event?: Record<string, string | number | boolean>,
+  req?: Record<string, string | number | boolean>,
+  error_ctx?: ErrorCtx,
+  on_line: boolean,
+}
+/* eslint-enable camelcase */
+
+const getTransportErrorEventDetails = (evt: ProgressEvent) => {
+  const req = evt?.currentTarget as XMLHttpRequest
+  return {
+    event: {
+      type: evt?.type,
+      is_trusted: evt?.isTrusted,
+      total: evt?.total,
+      loaded: evt?.loaded,
+    },
+    req: {
+      status: req?.status,
+      ready_state: req?.readyState,
+      timeout: req?.timeout,
+    }
+  }
+}
 
 /**
  * Use POST request without content type to:
@@ -19,7 +52,8 @@ export class HttpRequest {
 
   send(data: string | FormData, size: number) {
     const url = this.withBatchTime ? addBatchTime(this.endpointUrl) : this.endpointUrl
-    if (navigator.sendBeacon && size < this.bytesLimit) {
+    const tryBeacon = (!!navigator.sendBeacon && size < this.bytesLimit)
+    if (tryBeacon) {
       try {
         const isQueued = navigator.sendBeacon(url, data)
         if (isQueued) {
@@ -29,9 +63,35 @@ export class HttpRequest {
         reportBeaconError(e)
       }
     }
-    const request = new XMLHttpRequest()
-    request.open('POST', url, true)
-    request.send(data)
+
+    const transportErrorHandler = (ctx: any) => {
+      const transportErrCtx: TransportErrorCtx = {
+        on_line: navigator.onLine,
+        beacon: {
+          size,
+          url,
+          try_beacon: tryBeacon,
+          bytes_limit: this.bytesLimit,
+        },
+        ...ctx
+      }
+      addMonitoringMessage('Internal XHR failed', transportErrCtx)
+    }
+
+    try {
+      const request = new XMLHttpRequest()
+      request.addEventListener('error',
+        e=>transportErrorHandler(getTransportErrorEventDetails(e))
+      )
+      request.open('POST', url, true)
+      request.send(data)
+    }
+    catch (err) {
+      transportErrorHandler({
+        err_msg: err.message,
+        err_stack: err.stack
+      })
+    }
   }
 }
 
