@@ -6,19 +6,20 @@ import { monitor, addErrorToMonitoringBatch, addMonitoringMessage } from '../dom
 // https://en.wikipedia.org/wiki/UTF-8
 const HAS_MULTI_BYTES_CHARACTERS = /[^\u0000-\u007F]/
 
-
 /* eslint-disable camelcase */
-type ErrorCtx = {
-  err_msg?: string;
-  err_stack?: string;
-} | undefined;
+type ErrorCtx =
+  | {
+      err_msg?: string
+      err_stack?: string
+    }
+  | undefined
 
 type TransportErrorCtx = {
-  beacon: Record<string, string | number | boolean>,
-  event?: Record<string, string | number | boolean>,
-  req?: Record<string, string | number | boolean>,
-  error_ctx?: ErrorCtx,
-  on_line: boolean,
+  beacon: Record<string, string | number | boolean>
+  event?: Record<string, string | number | boolean>
+  req?: Record<string, string | number | boolean>
+  error_ctx?: ErrorCtx
+  on_line: boolean
 }
 /* eslint-enable camelcase */
 
@@ -35,7 +36,7 @@ const getTransportErrorEventDetails = (evt: ProgressEvent) => {
       status: req?.status,
       ready_state: req?.readyState,
       timeout: req?.timeout,
-    }
+    },
   }
 }
 
@@ -52,7 +53,7 @@ export class HttpRequest {
 
   send(data: string | FormData, size: number) {
     const url = this.withBatchTime ? addBatchTime(this.endpointUrl) : this.endpointUrl
-    const tryBeacon = (!!navigator.sendBeacon && size < this.bytesLimit)
+    const tryBeacon = !!navigator.sendBeacon && size < this.bytesLimit
     if (tryBeacon) {
       try {
         const isQueued = navigator.sendBeacon(url, data)
@@ -73,23 +74,20 @@ export class HttpRequest {
           try_beacon: tryBeacon,
           bytes_limit: this.bytesLimit,
         },
-        ...ctx
+        ...ctx,
       }
       addMonitoringMessage('Internal XHR failed', transportErrCtx)
     }
 
     try {
       const request = new XMLHttpRequest()
-      request.addEventListener('error',
-        e=>transportErrorHandler(getTransportErrorEventDetails(e))
-      )
+      request.addEventListener('error', (e) => transportErrorHandler(getTransportErrorEventDetails(e)))
       request.open('POST', url, true)
       request.send(data)
-    }
-    catch (err) {
+    } catch (err) {
       transportErrorHandler({
         err_msg: err.message,
-        err_stack: err.stack
+        err_stack: err.stack,
       })
     }
   }
